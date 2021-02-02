@@ -1,0 +1,241 @@
+################################################################################
+SHELL := /bin/bash
+################################################################################
+
+################################################################################
+# Variable setup, PROJECT_ROOTDIR is the top-level source directory
+
+ifeq ($(PROJECT_ROOTDIR),)
+PROJECT_ROOTDIR := $(CURDIR)
+export PROJECT_ROOTDIR
+endif
+################################################################################
+
+################################################################################
+# C++ Compiler
+
+# Choose compiler depending on the PATH variable
+CXX = g++
+################################################################################
+
+################################################################################
+# Debug output (either DEBUG=1 or VERBOSE=1 is allowed)
+
+V =
+
+ifeq ($(DEBUG),)
+ifeq ($(VERBOSE),)
+V = @
+endif
+endif
+################################################################################
+
+################################################################################
+# Tools
+
+CCCC = cccc
+CCCC_DIR = cccc
+
+DOXYGEN = doxygen
+DOXYGEN_DIR = doxygen
+DOXYGEN_ZIP = doxygen.zip
+DOXYFILE = $(PROGRAM).Doxyfile
+# Use API Doxyfile if possible
+ifneq ($(API_DIR),)
+ifneq ($(wildcard $(API_DIR)/share/$(DOXYFILE)),)
+DOXYFILE := $(API_DIR)/share/$(DOXYFILE)
+endif
+endif
+################################################################################
+
+################################################################################
+# Default preprocessor flags
+
+CPPFLAGS += -I$(PROJECT_ROOTDIR)
+################################################################################
+
+################################################################################
+# Default compiler flags
+
+# Debug
+CXXFLAGS += -g
+
+# No optimizations
+CXXFLAGS += -O0
+#CXXFLAGS += -O3
+
+# Enable C++17
+CXXFLAGS += -std=c++17
+
+# Warnings
+CXXFLAGS += -Wall
+CXXFLAGS += -pedantic
+CXXFLAGS += -Wextra
+CXXFLAGS += -Winit-self
+CXXFLAGS += -Wswitch-enum
+CXXFLAGS += -Wno-sign-compare
+CXXFLAGS += -Wpointer-arith
+CXXFLAGS += -Wctor-dtor-privacy
+CXXFLAGS += -Wold-style-cast
+CXXFLAGS += -Woverloaded-virtual
+CXXFLAGS += -Wsign-promo
+CXXFLAGS += -Wzero-as-null-pointer-constant
+#sanitizers
+CXXFLAGS += -fsanitize=address
+CXXFLAGS += -fsanitize=undefined
+CXXFLAGS += -fsanitize=leak
+CXXFLAGS += -fsanitize=float-cast-overflow
+CXXFLAGS += -fno-omit-frame-pointer
+
+################################################################################
+
+################################################################################
+# Default linker flags
+
+#sanitizers
+LDFLAGS += -fsanitize=address
+LDFLAGS += -fsanitize=undefined
+LDFLAGS += -fsanitize=leak
+LDFLAGS += -fsanitize=float-cast-overflow
+LDFLAGS += -fno-omit-frame-pointer
+
+# Linker paths
+LDFLAGS +=
+# Libraries
+LDFLAGS +=
+################################################################################
+
+################################################################################
+# Library name
+
+LIB_PREFIX = lib
+LIB_SUFFIX = .a
+
+ifeq ($(MAKELEVEL), 0)
+# The root library is called $(PROGRAM)
+LIB_NAME = $(PROGRAM)
+else
+# All other sub-libraries use the name of its directory
+LIB_NAME = $(notdir $(CURDIR))
+endif
+LIB_FILENAME = $(LIB_PREFIX)$(LIB_NAME)$(LIB_SUFFIX)
+
+# File with LDFLAGS of the current directory and its subdirectories
+LIBS = .libs
+################################################################################
+
+################################################################################
+# Directory and file naming scheme
+
+# Source file suffix
+SOURCE_SUFFIX := cpp
+
+# Header file suffix
+HEADER_SUFFIX := h
+
+# Object file suffix
+OBJECT_SUFFIX := o
+
+# Dependency file suffix
+DEPEND_SUFFIX := d
+
+# Subdirectory for all dependency and object files
+OBJECT_DIR = .obj
+################################################################################
+
+################################################################################
+# Source file selection
+
+# Compile all existing source files
+SOURCES = $(wildcard *.$(SOURCE_SUFFIX))
+# Dependency files in $(OBJECT_DIR)
+DEPENDS = $(SOURCES:%.$(SOURCE_SUFFIX)=$(OBJECT_DIR)/%.$(DEPEND_SUFFIX))
+# Object files in $(OBJECT_DIR)
+OBJECTS = $(SOURCES:%.$(SOURCE_SUFFIX)=$(OBJECT_DIR)/%.$(OBJECT_SUFFIX))
+################################################################################
+
+################################################################################
+# Include API specific preprocessor and linker settings
+
+ifneq ($(API_DIR),)
+ifneq ($(wildcard $(API_DIR)/share/Makefile.conf),)
+include $(API_DIR)/share/Makefile.conf
+endif
+endif
+################################################################################
+
+
+
+################################################################################
+################################################################################
+################################################################################
+
+
+
+.PHONY: all clean lib subdirs doc doxygen cccc $(SUB_DIRS)
+
+all: $(PROGRAM)
+
+# Cancel implicit rules at first
+%: %.$(OBJECT_SUFFIX)
+%: %.$(SOURCE_SUFFIX)
+%.$(OBJECT_SUFFIX): %.$(SOURCE_SUFFIX)
+
+$(PROGRAM): subdirs $(OBJECTS)
+	@echo "Linking: $@"
+	$(V)$(CXX) $(OBJECTS) $(foreach lib,$(SUB_DIRS),$(shell cat $(lib)/$(LIBS))) $(LDFLAGS) -o $@
+
+lib: subdirs $(LIB_FILENAME)
+	$(V)libs="-L$(CURDIR:$(PROJECT_ROOTDIR)/%=%) -l$(notdir $(CURDIR))"; \
+		for dir in $(SUB_DIRS); do \
+			libs="$$libs $$(< $$dir/$(LIBS))"; \
+		done; \
+		echo "$$libs" > $(LIBS)
+
+# This additional target makes sure that $(LIBS) is always updated!
+subdirs: $(SUB_DIRS)
+
+$(SUB_DIRS):
+	$(V)$(MAKE) -C $@ lib || exit 1
+
+$(LIB_FILENAME): $(OBJECTS)
+	@echo "Creating archive: $@"
+	$(V)$(AR) rcs $@ $^
+
+$(OBJECT_DIR)/%.$(OBJECT_SUFFIX): %.$(SOURCE_SUFFIX)
+	@echo "Compiling: $<"
+	$(V)mkdir -p $(OBJECT_DIR)
+	$(V)$(CXX) -MMD -MP $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@   
+
+doc: doxygen
+
+doxygen:
+	$(V)rm -rf $(DOXYGEN_DIR) # make sure that no old file remains
+	$(V)$(DOXYGEN) $(DOXYFILE) && \
+#		zip -q -r $(DOXYGEN_ZIP) $(DOXYGEN_DIR)/ && \
+#			echo "<meta http-equiv=\"refresh\" content=\"0; url=html/index.html\">" > $(DOXYGEN_DIR)/index.html && \
+#			echo "### Doxygen archive \"$(CURDIR)/$(DOXYGEN_ZIP)\" generated!" && \
+		echo "### Local URL: file://$$(find $(CURDIR)/$(DOXYGEN_DIR) -name index.html)"
+
+cccc:
+	$(V)rm -rf $(CCCC_DIR) # make sure that no old file remains
+	$(V)$(CCCC) --outdir=$(CCCC_DIR) --lang=c++ \
+		$(shell find $(CURDIR) -name \*.$(HEADER_SUFFIX)) \
+		$(shell find $(CURDIR) -name \*.$(SOURCE_SUFFIX))
+
+clean:
+	$(V)for dir in $(SUB_DIRS); do \
+			$(MAKE) -C $$dir clean || exit 1; \
+		done
+	@echo "Cleaning: $(CURDIR)"
+	$(V)rm -f $(LIB_FILENAME) $(LIBS) $(PROGRAM) \
+		$(OBJECT_DIR)/*.$(DEPEND_SUFFIX) \
+		$(OBJECT_DIR)/*.$(OBJECT_SUFFIX)
+	$(V)rm -rf $(CCCC_DIR)
+	$(V)rm -rf $(DOXYGEN_DIR) $(DOXYGEN_ZIP)
+	$(V)[[ -d $(OBJECT_DIR) && "$$(ls -A $(OBJECT_DIR))" ]] || rm -rf $(OBJECT_DIR)
+
+# Include dependency files
+ifneq ($(DEPENDS),)
+-include $(DEPENDS)
+endif
