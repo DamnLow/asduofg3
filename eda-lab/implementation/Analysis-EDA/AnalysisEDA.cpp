@@ -10,9 +10,9 @@
 
 void AnalysisEDA::run() {
     //std::cout << __PRETTY_FUNCTION__ << " is not implemented!" << std::endl;
-
     // Todo: Implement the simulator here
 
+    //test for git
     // Iterate all elements:
     for (const Element* element : graphHandler->getAllElements()) {
         std::cout << element->getName() << std::endl;
